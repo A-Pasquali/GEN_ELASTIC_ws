@@ -23,7 +23,7 @@ class Individual:
             self.points[i-1, :] = self.A + i/(self.number_of_points+1) * (self.B - self.A)
 
     def distance(self, p1, p2):
-        return np.linalg.norm(p1-p2)*0.001
+        return np.linalg.norm(p1-p2)
     
     def force(self, p):
         return self.K * self.distance(p, self.Kpoint)
@@ -32,6 +32,28 @@ class Individual:
         distAB = self.distance(self.A, self.B)
         max_force = 30
         correct_distance = distAB/(self.number_of_points+1)
+
+        path = np.vstack((self.A.reshape(1,3), self.points, self.B.reshape(1,3)))
+        distances = []
+
+        for i in range(1, len(path)-1):
+            prev_dist = self.distance(path[i-1, :], path[i, :])
+            post_dist = self.distance(path[i, :], path[i+1, :])
+            distances.append((1+((0.5*abs(prev_dist - correct_distance) + 0.5*abs(post_dist - correct_distance))/distAB))**2)
+
+        forces = []
+        for i in range(1,len(path)-1):
+            forces.append((1+self.force(path[i, :])/max_force))
+
+        points_scores = []
+        for i in range(len(path)-2):
+            points_scores.append(forces[i]*distances[i])
+
+        score = np.sum(points_scores)
+
+        self.mutation_prob = np.array(points_scores)/np.sum(points_scores)
+
+        """
         distances = [1]
         distances.append(1+(abs(self.distance(self.A, self.points[0, :])-correct_distance)))
         for i in range(self.number_of_points-1):
@@ -50,16 +72,14 @@ class Individual:
         score = np.sum(points_scores)
 
         self.mutation_prob = np.array(points_scores[1:-1])/np.sum(points_scores[1:-1])
-
-
-        ######
-        ######
+        """
         return score
     
     def big_mutation(self):
         #mute all points
         points = copy.deepcopy(self.points)
-        points += np.random.randint(-self.sigma, self.sigma, size = (self.number_of_points, self.A.shape[0]))
+        #points += np.random.randint(-self.sigma, self.sigma, size = (self.number_of_points, self.A.shape[0]))
+        points += np.round(2*(0.5 - np.random.rand(self.number_of_points, self.A.shape[0]))*self.sigma,3)
         return Individual(self.A, self.B, points, self.number_of_points, self.Kpoint, self.K, self.sigma)
     
     def mutate(self):
@@ -67,7 +87,7 @@ class Individual:
         points = copy.deepcopy(self.points)
         index = np.random.choice(np.arange(self.number_of_points), p = self.mutation_prob)
         #mutate
-        points[index, :] += np.random.randint(-self.sigma, self.sigma, size = self.A.shape[0])
+        points[index, :] += np.round(2*(0.5 - np.random.rand(self.A.shape[0]))*self.sigma, 3)
         return Individual(self.A, self.B, points, self.number_of_points, self.Kpoint, self.K, self.sigma)
 
     def __mul__(self, other):
@@ -82,7 +102,7 @@ class Individual:
 
 
 class Population:
-    def __init__(self, number_individuals, A, B, number_of_points = 20, Kpoint = [5,5,5], K = 10, sigma = 10, delta = 0.97):
+    def __init__(self, number_individuals, A, B, number_of_points = 20, Kpoint = [5,5,5], K = 10, sigma = 10, delta = "default"):
         self.number_individuals = number_individuals
         self.A = A
         self.B = B
@@ -119,9 +139,13 @@ class Population:
     def fit(self, number_generations, Cw = 1/2, Cm = 1/2, Ccr = 0):
         self.paths_tested = []
         self.scores_obtained = []
+        if self.delta == "default":
+            self.delta = (0.01/self.sigma)**(1/number_generations)
+            print("Delta: ", self.delta)
+            print("Sigma: ", self.sigma)
         for i in range(number_generations):
             self.sigma *= self.delta
-            self.sigma = round(self.sigma)
+            #self.sigma = round(self.sigma)
             self.get_scores()
             self.reorder()
             scores = []
@@ -170,7 +194,7 @@ class ESlearning:
         self.Gen = Parameters["Gen"]
         self.end_sigma = Parameters["end_sigma"]
         self.colors = Parameters["colors"]
-        self.Sigma = np.linalg.norm(self.A-self.B)//self.number_of_points
+        self.Sigma = np.linalg.norm(self.A-self.B)/(self.number_of_points+1)
         self.Dict_results = {}
         self.start_name = "Experiment_"
         self.save_dir_img = "/home/alex/ros/GEN_ELASTIC_ws/scripts/images/"
@@ -230,8 +254,8 @@ class ESlearning:
         plt.title("Comparison of different Cw, Cm, Ccr with a Population of " + str(Ni) + " Individuals", fontsize = 14)
         Ni_possible = np.array(self.number_individuals)
         indexes = np.where(Ni_possible == Ni)[0]
-        min_values = {"20": [], "30": [], "40": []}
-        col_min = {"20": [], "30": [], "40": []}
+        min_values = {str(self.K[0]): [], str(self.K[1]): [], str(self.K[2]): []}
+        col_min = {str(self.K[0]): [], str(self.K[1]): [], str(self.K[2]): []}
         for index in indexes:
             Gen = self.Gen[index]
             Cw = self.Cw[index]
@@ -259,157 +283,74 @@ class ESlearning:
         for Ni in different_Ni:
             self.plot_results_of_one_Ni(Ni)
 
-# if __name__ == "__main__":
+if __name__ == "__main__":
 
-#     Parameters = {"A" : np.array([0, 0, 0]), 
-#                 "B" : np.array([600, 600, 600]), 
-#                 "number_of_points" : 6, 
-#                 "Kpoint" : [600,0,0], 
-#                 "K" : [20,30,40], 
-#                 "number_individuals" : [8,8,8,8,16,16,16,16,32,32,32,32,64,64,64,64], 
-#                 "Cw" : [1/2,1/2,3/4,3/4,1/2,1/2,3/4,3/4,3/4,3/4,7/8,7/8,7/8,7/8,15/16,15/16], 
-#                 "Cm" : [1/2,1/4,2/8,1/8,1/2,6/16,2/16,3/16,2/16,3/16,2/32,2/32,4/64,6/64,2/64,3/64], 
-#                 "Ccr" : [0,1/4,0,1/8,0,2/16,2/16,1/16,2/16,1/16,2/32,1/32,4/64,2/64,2/64,1/64],
-#                 "Rep" : 50, 
-#                 "Gen" : [123,123,246,246,61,61,121,121,58,58,117,117,54,54,109,109],
-#                 "end_sigma" : 10,
-#                 "colors" : ["red", "blue", "green", "purple", "red", "blue", "green", "purple", "red", "blue", "green", "purple", "red", "blue", "green", "purple"]
-#                 }
+    Parameters = {"A" : np.array([0, 0, 0]), 
+                "B" : np.array([0.6, 0.6, 0.6]), 
+                "number_of_points" : 5, 
+                "Kpoint" : [0.6,0,0], 
+                "K" : [10,20,30], 
+                "number_individuals" : [8,8,8,8,16,16,16,16,32,32,32,32,64,64,64,64], 
+                "Cw" : [1/2,1/2,3/4,3/4,1/2,1/2,3/4,3/4,3/4,3/4,7/8,7/8,7/8,7/8,15/16,15/16], 
+                "Cm" : [1/2,1/4,2/8,1/8,1/2,6/16,2/16,3/16,2/16,3/16,2/32,2/32,4/64,6/64,2/64,3/64], 
+                "Ccr" : [0,1/4,0,1/8,0,2/16,2/16,1/16,2/16,1/16,2/32,1/32,4/64,2/64,2/64,1/64],
+                "Rep" : 50, 
+                "Gen" : [123,123,246,246,61,61,121,121,58,58,117,117,54,54,109,109],
+                "end_sigma" : 0.001,
+                "colors" : ["red", "blue", "green", "purple", "red", "blue", "green", "purple", "red", "blue", "green", "purple", "red", "blue", "green", "purple"]
+                }
 
-#     ES = ESlearning(Parameters)
-#     ES.load_data()
-#     ES.plot_results()
+    ES = ESlearning(Parameters)
+    ES.perform_all_experiments()
+    ES.plot_results()
 
+# #test individual
+# A = np.array([0, 0, 0])
+# B = np.array([0.6, 0.6, 0.6])
 
+# distAB = np.linalg.norm(A-B)
 
+# number_of_points = 5
 
+# Pop = Population(16, A, B, number_of_points = number_of_points, Kpoint = [0.6,0,0], K = 10, sigma = distAB/(number_of_points+1))
+# Pop.fit(123, Cw = 3/4, Cm = 3/16, Ccr = 1/16)
 
+# Kpoint = Pop.Kpoint
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#test individual
-A = np.array([0, 0, 0])
-B = np.array([600, 600, 600])
-
-distAB = np.linalg.norm(A-B)
-
-number_of_points = 6
-
-Pop = Population(16, A, B, number_of_points = number_of_points, Kpoint = [600,0,0], K = 30, sigma = distAB//number_of_points)
-Pop.fit(121, Cw = 3/4, Cm = 3/16, Ccr = 1/16)
-
-Kpoint = Pop.Kpoint
-
-#3d plot with axis3d
-fig = plt.figure()
-ax = fig.add_subplot(111, projection='3d')
-ax.set_xlabel('x')
-ax.set_ylabel('y')
-ax.set_zlabel('z')
-ax.scatter(A[0], A[1], A[2], c='g', marker='o', s = 100)
-ax.scatter(B[0], B[1], B[2], c='g', marker='o', s = 100)
-start_color = np.array([0, 0, 1])
-end_color = np.array([0, 1, 0])
-for i,path in enumerate(Pop.paths_tested):
-    path = np.vstack((A.reshape(1,3), path, B.reshape(1,3)))
-    color = start_color + (end_color - start_color) * i/len(Pop.paths_tested)
-    ax.plot(path[:, 0], path[:, 1], path[:, 2], c=color, alpha = 0.5, linewidth = 0.1)
-best_path = np.vstack((A.reshape(1,3), Pop.best_path, B.reshape(1,3)))
-ax.plot(best_path[:, 0], best_path[:, 1], best_path[:, 2], c='g', alpha = 1, linewidth = 3)
-ax.scatter(best_path[:, 0], best_path[:, 1], best_path[:, 2], c='g', marker='o', s = 100)
-ax.scatter(Kpoint[0], Kpoint[1], Kpoint[2], c='purple', marker='*', s = 100)
-ax.xlim = (0, 600)
-ax.ylim = (0, 600)
-ax.zlim = (0, 600)
-#trait lines between best points and Kpoint
-for i in range(len(Pop.best_path)):
-    ax.plot([Pop.best_path[i, 0], Kpoint[0]], [Pop.best_path[i, 1], Kpoint[1]], [Pop.best_path[i, 2], Kpoint[2]], c='purple', alpha = 0.5, linewidth = 2, linestyle = '--')
-plt.show()
-
-Pop.scores_obtained = np.array(Pop.scores_obtained)
-print(Pop.scores_obtained.shape)
-
-#score plot, riempire l'area compresa tra le due curve Pop.scores_obtained[0, :] e Pop.scores_obtained[-1, :]
-plt.figure()
-#area between the two curves
-plt.fill_between(np.arange(len(Pop.scores_obtained[:, 0])), Pop.scores_obtained[:, 0], Pop.scores_obtained[:, -1], color = 'lightblue')
-#plot of the two curves
-plt.plot(np.arange(len(Pop.scores_obtained[:, 0])), Pop.scores_obtained[:, 0], label = 'Best score', color = 'green')
-plt.plot(np.arange(len(Pop.scores_obtained[:, 0])), Pop.scores_obtained[:, -1], label = 'Worst score', color = 'red')
-plt.legend()
-plt.show() 
-
-# #TEST
-
-# C = [[1/2, 1/2, 0], [1/2, 1/4, 1/4], [1/2, 3/8, 1/8]]
-# C_str = ['Cw = 1/2, Cm = 1/2, Ccr = 0', 'Cw = 1/2, Cm = 1/4, Ccr = 1/4', 'Cw = 1/2, Cm = 3/8, Ccr = 1/8']
-
-# C = [[3/4, 1/4, 0], [3/4, 1/8, 1/8], [3/4, 3/16, 1/16]]
-# C_str = ['Cw = 3/4, Cm = 1/4, Ccr = 0', 'Cw = 3/4, Cm = 1/8, Ccr = 1/8', 'Cw = 3/4, Cm = 3/16, Ccr = 1/16']
-
-# C = [[24/32, 8/32, 0], [24/32, 4/32, 4/32], [24/32, 6/32, 2/32], [24/32, 7/32, 1/32]]
-# C_str = ['Cw = 3/4, Cm = 1/4, Ccr = 0', 'Cw = 3/4, Cm = 1/8, Ccr = 1/8', 'Cw = 3/4, Cm = 3/16, Ccr = 1/16', 'Cw = 3/4, Cm = 7/32, Ccr = 1/32']
-
-# C = [[56/64, 8/64, 0], [56/64, 4/64, 4/64], [56/64, 6/64, 2/64], [56/64, 7/64, 1/64]]
-# C_str = ['Cw = 7/8, Cm = 1/8, Ccr = 0', 'Cw = 7/8, Cm = 1/16, Ccr = 1/16', 'Cw = 7/8, Cm = 3/32, Ccr = 1/32', 'Cw = 7/8, Cm = 7/64, Ccr = 1/64']
-
-# Rep = 50
-# Gen = 125
-# pop = 64
-# K = 40
-# sigma = distAB//number_of_points
-# end_sigma = 10
-# delta = (end_sigma/sigma)**(1/Gen)
-
-# scores_different_C = []
-
-# for i in range(len(C)):
-#     current_scores = []
-#     for j in range(Rep):
-#         Pop = Population(pop, A, B, number_of_points = number_of_points, Kpoint = [600,0,0], K = K, sigma = sigma, delta = delta)
-#         Pop.fit(Gen, Cw = C[i][0], Cm = C[i][1], Ccr = C[i][2])
-#         Pop.scores_obtained = np.array(Pop.scores_obtained)
-#         current_scores.append(Pop.scores_obtained[:, 0])
-#     scores_different_C.append(current_scores)
-
-# plt.figure()
-# min_values = []
-# for i in range(len(C)):
-#     plt.plot(np.arange(Gen+1), np.mean(scores_different_C[i], axis = 0), label = C_str[i], linewidth = 2)
-#     standard deviation
-#     plt.fill_between(np.arange(Gen+1), np.mean(scores_different_C[i], axis = 0) - np.std(scores_different_C[i], axis = 0), np.mean(scores_different_C[i], axis = 0) + np.std(scores_different_C[i], axis = 0), alpha = 0.1)
-#     min_values.append(np.min(np.mean(scores_different_C[i], axis = 0)))
-# una sola linea tratteggiata per il valore minimo della media migliore tra tutte le medie
-# plt.plot(np.arange(Gen+1), np.ones(Gen+1)*min(min_values), '--', color = 'black', linewidth = 2, label = "Minimum Value = " + str(round(min(min_values), 3)), alpha = 0.5)
-    
-# plt.title("Comparison of different Cw, Cm, Ccr\nwith a Population of " + str(pop) + " Individuals, " + str(Gen) + " Generations and K = " + str(K))
-# plt.legend()
-# plt.xlabel("Generation", fontsize = 12)
-# plt.ylabel("Score", fontsize = 12)
-# plt.savefig("/home/alex/ros/GEN_ELASTIC_ws/scripts/images/Cw_Cm_Ccr_comparison_" + str(pop) + "individuals_" + str(Gen) + "generations_" + str(K) + "K.png")
+# #3d plot with axis3d
+# fig = plt.figure()
+# ax = fig.add_subplot(111, projection='3d')
+# ax.set_xlabel('x')
+# ax.set_ylabel('y')
+# ax.set_zlabel('z')
+# ax.scatter(A[0], A[1], A[2], c='g', marker='o', s = 100)
+# ax.scatter(B[0], B[1], B[2], c='g', marker='o', s = 100)
+# start_color = np.array([0, 0, 1])
+# end_color = np.array([0, 1, 0])
+# for i,path in enumerate(Pop.paths_tested):
+#     path = np.vstack((A.reshape(1,3), path, B.reshape(1,3)))
+#     color = start_color + (end_color - start_color) * i/len(Pop.paths_tested)
+#     ax.plot(path[:, 0], path[:, 1], path[:, 2], c=color, alpha = 0.5, linewidth = 0.1)
+# best_path = np.vstack((A.reshape(1,3), Pop.best_path, B.reshape(1,3)))
+# ax.plot(best_path[:, 0], best_path[:, 1], best_path[:, 2], c='g', alpha = 1, linewidth = 3)
+# ax.scatter(best_path[:, 0], best_path[:, 1], best_path[:, 2], c='g', marker='o', s = 100)
+# ax.scatter(Kpoint[0], Kpoint[1], Kpoint[2], c='purple', marker='*', s = 100)
+# ax.xlim = (0, 600)
+# ax.ylim = (0, 600)
+# ax.zlim = (0, 600)
+# #trait lines between best points and Kpoint
+# for i in range(len(Pop.best_path)):
+#     ax.plot([Pop.best_path[i, 0], Kpoint[0]], [Pop.best_path[i, 1], Kpoint[1]], [Pop.best_path[i, 2], Kpoint[2]], c='purple', alpha = 0.5, linewidth = 2, linestyle = '--')
 # plt.show()
+
+# Pop.scores_obtained = np.array(Pop.scores_obtained)
+
+# #score plot, riempire l'area compresa tra le due curve Pop.scores_obtained[0, :] e Pop.scores_obtained[-1, :]
+# plt.figure()
+# #area between the two curves
+# plt.fill_between(np.arange(len(Pop.scores_obtained[:, 0])), Pop.scores_obtained[:, 0], Pop.scores_obtained[:, -1], color = 'lightblue')
+# #plot of the two curves
+# plt.plot(np.arange(len(Pop.scores_obtained[:, 0])), Pop.scores_obtained[:, 0], label = 'Best score', color = 'green')
+# plt.plot(np.arange(len(Pop.scores_obtained[:, 0])), Pop.scores_obtained[:, -1], label = 'Worst score', color = 'red')
+# plt.legend()
+# plt.show() 

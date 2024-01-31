@@ -21,7 +21,7 @@ def f(x, y):
     score_force = abs(np.sqrt((x-Kpoint[0])**2 + (y-Kpoint[1])**2)*0.001)*K
     #return (1/(distanceAB - score_dist)) * (1/(30-score_force))
     Sd = 1+score_dist
-    Sf = 1+score_force/50
+    Sf = 1+(score_force)/50
     return 0.25*Sf*(Sd)**2
 
 x = np.linspace(0, 600, 300)
